@@ -134,4 +134,21 @@ A capture device on the emitters end (Client OBS) outputs raw video frames and a
 | CloudFront+S3   | ⚠️ Higher   | ⚠️ Some | ✅✅ Scalable   | ⚠️ Medium  | Production use     |
 | MediaMTX direct | ✅✅ Very Low | ✅ Free  | ⚠️ Local only | ✅ Easy   | LL-HLS local demo|
 
-[7]
+[7] Playback and Testing with libVLC, possibly Javascript in the future if I care enough.
+
+    [libVLC Instance]
+       ↓
+    [libVLC Media]
+       ↓
+    [libVLC Media Player]
+       ↓
+    [Display output + metrics API]
+
+| Feature                      | libVLC Supports? | Notes                                  |
+| ---------------------------- | ---------------- | -------------------------------------- |
+| HLS (`.m3u8`) playback       | ✅ Yes            | Auto handles ABR and segment buffering |
+| Video rendering in GUI       | ✅ Yes            | Embeddable in Qt, SDL, etc.            |
+| Programmatic access to stats | ✅ Yes            | Latency, bitrate, resolution           |
+| Stream variant switching     | ✅ Yes (advanced) | You can override ABR                   |
+| Runs cross-platform          | ✅ Yes            | Linux/macOS/Windows                    |
+| No JavaScript                | ✅ Definitely     | Pure native C/C++                      |
