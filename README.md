@@ -1,19 +1,17 @@
 
-### LiveStreamX (Real-Time Cat Videos)
+# LiveStreamX (Real-Time Cat Videos)
 
 ## Architecture:
 
-# 1. Scraper / S3 Asset Manager
+### 1. Scraper / S3 Asset Manager
 
 A Japanese man by the username ["niiyan1216"](https://www.youtube.com/user/niiyan1216) on YouTube has been posting daily videos of himself feeding stray cats for over 9 years. This dataset will represent the streamed content. We must implement both a scraper and an S3 Asset Manager to load each randomized video sequentially.
 
 --------------------------------------------------------------------------------------------------------------------------------------------
 
-[1] 🎥 Capture (User Device)
+### [1] Capture (User Device)
 
     Device: Phone, webcam, DSLR, OBS
-
-    Media APIs: getUserMedia() (WebRTC), DirectShow, AVFoundation
 
     Output: Raw video frames (YUV or RGB), and raw audio (PCM)
 
@@ -30,15 +28,7 @@ A Japanese man by the username ["niiyan1216"](https://www.youtube.com/user/niiya
 | **WebRTC API**       | Cross-platform | C++ / JS      | ✅ Ultra-Low | 😐 Medium   | Built-in support for capture + encoding           |
 
 
-🧠 These are uncompressed, huge in size. Must be encoded.
-
-[2] 🎞️ Encoding (Compression)
-
-    Tooling:
-
-        Software: FFmpeg, OBS (uses libx264, libx265)
-
-        Hardware: NVIDIA NVENC, Intel QuickSync, Apple VideoToolbox
+### [2] Encoding (Compression)
 
     Codecs:
 
@@ -56,10 +46,6 @@ A Japanese man by the username ["niiyan1216"](https://www.youtube.com/user/niiya
 
     Resolution (1080p, 720p)
 
-Example FFmpeg cmd:
-
-ffmpeg -f v4l2 -i /dev/video0 -c:v libx264 -f flv rtmp://live.example.com/stream_key
-
 | Tool                     | Encoding Type  | Speed       | Quality      | Use Case                           |
 | ------------------------ | -------------- | ----------- | ------------ | ---------------------------------- |
 | **FFmpeg + libx264**     | Software (CPU) | ⚠️ Slower   | ✅ Good       | Widely used, flexible              |
@@ -70,17 +56,7 @@ ffmpeg -f v4l2 -i /dev/video0 -c:v libx264 -f flv rtmp://live.example.com/stream
 | **SVT-AV1**              | Software (CPU) | ⚠️ Medium   | ✅✅ Very Good | Slightly faster than libaom        |
 | **x265**                 | Software (CPU) | ⚠️ Medium   | ✅✅ Very Good | Best quality in HEVC               |
 
-[3] Upload (Streaming Protocol)
-
-    Protocol:
-
-        📦 RTMP (Real-Time Messaging Protocol): Most common for ingest
-
-        📦 SRT: Secure Reliable Transport (better for high-packet-loss environments)
-
-        📦 WebRTC: Ultra-low-latency (sub-second), used by Meet, Discord
-
-    RTMP sends a continuous stream of FLV packets over TCP.
+### [3] Upload (Streaming Protocol)
 
 | Protocol   | Transport | Latency   | Reliability      | Complexity | Use Case                           |
 | ---------- | --------- | --------- | ---------------- | ---------- | ---------------------------------- |
@@ -91,14 +67,11 @@ ffmpeg -f v4l2 -i /dev/video0 -c:v libx264 -f flv rtmp://live.example.com/stream
 | **RTSP**   | TCP/UDP   | ⚠️ Legacy | ⚠️ Weak          | ⚠️ Legacy  | Camera feeds, NVR systems          |
 
 
-📌 Goal: Push encoded stream to the backend “ingest” server.
 [4] Transcoding & Replication
 
     Server accepts 1080p input and transcodes into:
 
         720p, 480p, 360p, etc.
-
-    Tools: FFmpeg, GStreamer, NVIDIA Video Codec SDK (GPU acceleration)
 
     Can run on:
 
@@ -106,17 +79,15 @@ ffmpeg -f v4l2 -i /dev/video0 -c:v libx264 -f flv rtmp://live.example.com/stream
 
         FFmpeg on bare-metal for cost efficiency
 
-| Method                             | Hardware | Speed    | Quality | Scalability | Notes                    |
-| ---------------------------------- | -------- | -------- | ------- | ----------- | ------------------------ |
-| **FFmpeg Software**                | CPU      | ⚠️ Slow  | ✅ Good  | ⚠️ Costly   | Flexible but heavy       |
-| **FFmpeg + NVENC/QuickSync**       | GPU/iGPU | ✅ Fast   | 😐 OK   | ✅ Better    | Real-time capable        |
-| **MediaMTX Built-in Transcode**    | CPU      | ⚠️ Basic | 😐 OK   | Limited     | Works but not tuned      |
-| **GStreamer GPU Pipelines**        | GPU      | ✅ Fast   | ✅✅ High | ✅✅ Scalable | Used in pro-grade stacks |
-| **Cloud Services (AWS MediaLive)** | Cloud    | ✅✅ Fast  | ✅✅ Good | ✅✅✅         | Expensive but scalable   |
+| Method                             | Hardware | Speed    | Quality |  Scalability  | Notes                    |
+| ---------------------------------- | -------- | -------- | ------- | ------------- | ------------------------ |
+| **FFmpeg Software**                | CPU      | ⚠️ Slow  | ✅ Good  | ⚠️ Costly    | Flexible but heavy      |
+| **FFmpeg + NVENC/QuickSync**       | GPU/iGPU | ✅ Fast   | 😐 OK   | ✅ Better    | Real-time capable      |
+| **MediaMTX Built-in Transcode**    | CPU      | ⚠️ Basic | 😐 OK   | Limited       | Works but not tuned      |
+| **GStreamer GPU Pipelines**        | GPU      | ✅ Fast   | ✅✅ High | ✅✅ Good  | Used in pro-grade stacks |
+| **Cloud Services (AWS MediaLive)** | Cloud    | ✅✅ Fast  | ✅✅ Good | ✅✅✅    | Expensive but scalable   |
 
-
-⏱️ This adds latency, but improves reach for users on slow connections.
-[5] 📦 Segmenting & Packaging
+[5] Segmenting & Packaging
 
     HLS (HTTP Live Streaming):
 
@@ -159,10 +130,10 @@ ffmpeg -f v4l2 -i /dev/video0 -c:v libx264 -f flv rtmp://live.example.com/stream
 
     https://cdn.twitch.tv/live/stream123/1080p/segment152.ts
 
-| Option          | Latency     | Cost    | Scalability   | Setup Time | Best For          |
-| --------------- | ----------- | ------- | ------------- | ---------- | ----------------- |
-| NGINX Local     | ✅ Low       | ✅ Free  | ⚠️ Limited    | ✅ Fast     | Dev/prototyping   |
-| CloudFront+S3   | ⚠️ Higher   | ⚠️ Some | ✅✅ Scalable   | ⚠️ Medium  | Production use    |
-| MediaMTX direct | ✅✅ Very Low | ✅ Free  | ⚠️ Local only | ✅ Easy     | LL-HLS local demo |
+| Option          | Latency     | Cost    | Scalability   | Setup Time | Best For              |
+| --------------- | ----------- | ------- | ------------- | ---------- | --------------------- |
+| NGINX Local     | ✅ Low       | ✅ Free  | ⚠️ Limited    | ✅ Fast    | Dev/prototyping   |
+| CloudFront+S3   | ⚠️ Higher   | ⚠️ Some | ✅✅ Scalable   | ⚠️ Medium  | Production use     |
+| MediaMTX direct | ✅✅ Very Low | ✅ Free  | ⚠️ Local only | ✅ Easy   | LL-HLS local demo|
 
 [7]
