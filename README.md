@@ -2,19 +2,13 @@
 # LiveStreamX (Real-Time Cat Videos)
 
 ## Architecture:
-
-### 1. Scraper / S3 Asset Manager
-
-A Japanese man by the username ["niiyan1216"](https://www.youtube.com/user/niiyan1216) on YouTube has been posting daily videos of himself feeding stray cats for over 9 years. This dataset will represent the streamed content. We must implement both a scraper and an S3 Asset Manager to load each randomized video sequentially.
-
 --------------------------------------------------------------------------------------------------------------------------------------------
 
-### [1] Capture (User Device)
-
-    Device: Phone, webcam, DSLR, OBS
-
-    Output: Raw video frames (YUV or RGB), and raw audio (PCM)
-
+### [1] Capture (Youtube Video). 
+    A Japanese man by the username ["niiyan1216"](https://www.youtube.com/user/niiyan1216) on YouTube has been posting daily videos of himself feeding stray cats for over 9 years. This dataset will represent the streamed content. We must      implement both a scraper and an S3 Asset Manager to load each randomized video sequentially.
+    
+    Store/Input: AWS S3
+    Convert to: Raw video frames (YUV or RGB), and raw audio (PCM)
 
 | API / Lib            | Platform       | Language      | Latency     | Ease of Use | Notes                                             |
 | -------------------- | -------------- | ------------- | ----------- | ----------- | ------------------------------------------------- |
