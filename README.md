@@ -36,7 +36,7 @@ Unlike traditional streaming services (e.g. Twitch or Zoom) which ingest raw str
 
 ## [1] Input: YouTube Video Scraping
 
-We use a Go-based scraper to ingest videos from the YouTube channel [niiyan1216](https://www.youtube.com/user/niiyan1216), a user known for over 9 years of stray cat content.
+We implemented a Go-based scraper to ingest videos from the YouTube channel [niiyan1216](https://www.youtube.com/user/niiyan1216), a user known for over 9 years of stray cat content.
 
 - Format: `.mp4`
 - Codec: `H.264/AVC`
@@ -44,6 +44,52 @@ We use a Go-based scraper to ingest videos from the YouTube channel [niiyan1216]
 
 ---
 
+### Prerequisites
+
+- Go 1.18+
+- [`yt-dlp`](https://github.com/yt-dlp/yt-dlp) installed and in your `$PATH`
+- `.env` file in the `/scraper` directory with the following:
+
+```env
+BUCKET_NAME=your-s3-bucket-name
+CHANNEL=YourYouTubeChannelName
+```
+
+- AWS credentials configured (via environment or `~/.aws/credentials`)
+
+### Prerequisites
+
+Clone the repository and install dependencies and run the program:
+
+```bash
+go mod tidy
+go run main.go
+```
+
+You should see logs for:
+
+- Extracting video IDs from the channel
+- Downloading videos and metadata
+- Uploading `.mp4` and `.json` to S3 under `mp4/` and `json/` prefixes
+
+### Output Structure in S3
+
+```
+s3://your-s3-bucket/
+├── mp4/
+│   ├── abc123.mp4
+│   └── ...
+└── json/
+    ├── abc123.info.json
+    └── ...
+```
+
+### Notes
+
+- After uploading, temporary files (`.mp4` and `.json`) are deleted locally.
+- Each video download is retried up to 5 times with exponential backoff.
+- You can bypass this step by storing locally, or manually uploading the files to your favorite object storage.
+  
 ## [2] Inference Pipeline
 
 ### Model: **Distilled Dense Residual Connection Transformer (DRCT)**
