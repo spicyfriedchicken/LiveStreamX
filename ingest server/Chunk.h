@@ -113,7 +113,6 @@ private:
         // Common video PIDs to try
         std::vector<uint16_t> common_video_pids = {0x100, 0x101, 0x11, 0x20};
         for (uint16_t pid : common_video_pids) {
-            // Check if this PID contains video data
             for (size_t i = 0; i + 188 <= data.size(); i += 188) {
                 TSPacket packet;
                 if (parse_ts_packet(data, i, packet) && packet.pid == pid && packet.payload_size > 0) {
@@ -141,9 +140,7 @@ public:
             }
 
             if (packet.payload_unit_start) {
-                // New PES packet starting
                 if (in_pes_packet && !pes_buffer.empty()) {
-                    // Process previous PES packet
                     if (contains_idr_frame(pes_buffer)) {
                         return true;
                     }
@@ -153,7 +150,6 @@ public:
             }
 
             if (in_pes_packet && packet.payload_size > 0) {
-                // Add payload to PES buffer
                 pes_buffer.insert(pes_buffer.end(),
                                 data.begin() + packet.payload_offset,
                                 data.begin() + packet.payload_offset + packet.payload_size);
@@ -170,17 +166,14 @@ public:
 
 private:
     static bool contains_idr_frame(const std::vector<uint8_t>& pes_data) {
-        // Skip PES header (usually 6-9 bytes + optional fields)
         size_t start = 0;
         if (pes_data.size() < 6) return false;
 
-        // Basic PES header parsing
         if (pes_data[0] == 0x00 && pes_data[1] == 0x00 && pes_data[2] == 0x01) {
             uint8_t pes_header_length = pes_data[8];
             start = 9 + pes_header_length;
         }
 
-        // Look for NAL units in the elementary stream
         bool found_sps = false, found_pps = false, found_aud = false;
 
         for (size_t i = start; i + 4 < pes_data.size(); ++i) {
@@ -194,7 +187,6 @@ private:
                     case 8: found_pps = true; break;  // PPS
                     case 9: found_aud = true; break;  // AUD
                     case 5: // IDR frame
-                        // For robustness, ensure we have proper sequence
                         if (found_sps && found_pps) {
                             return true;
                         }
