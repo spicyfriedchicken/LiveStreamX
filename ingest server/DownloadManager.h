@@ -1,12 +1,19 @@
-//
-// Created by Oscar Abreu on 7/29/25.
-//
+#ifndef DOWNLOADMANAGER_H
+#define DOWNLOADMANAGER_H
 
-#include "Chunk.h";
+#include "Chunk.h"
+#include "FetchPool.h"
+#include <random>
+#include <thread>
+#include <fstream>
+
+
 
 class S3DownloadManager {
-    const size_t chunk_size = 188 * 5000;
-    const int max_workers = 5;
+    const size_t TS_PACKET_SIZE = 188;
+    const size_t PACKETS_PER_CHUNK = 500;
+    const size_t CHUNK_SIZE = TS_PACKET_SIZE * PACKETS_PER_CHUNK;
+    const size_t max_workers = 5;
 
 public:
     void run() {
@@ -17,11 +24,17 @@ public:
 
         std::thread producer([&]() {
             while (!queue.is_shutdown()) {
-                size_t offset = current_offset.fetch_add(chunk_size);
-                queue.push(Chunk{offset, chunk_size});
+                size_t tentative_offset = current_offset.fetch_add(CHUNK_SIZE);
+                auto keyframe_offset = find_keyframe_offset(url, tentative_offset, CHUNK_SIZE * 2);
+                if (keyframe_offset.has_value()) {
+                    queue.push(Chunk{keyframe_offset.value(), CHUNK_SIZE});
+                } else {
+                    std::cerr << "No IDR frame found near offset " << tentative_offset << std::endl;
+                }
                 std::this_thread::sleep_for(std::chrono::milliseconds(5));
             }
         });
+
 
         FetcherPool pool(max_workers, queue, url);
         pool.join();
@@ -42,5 +55,18 @@ private:
         std::string chosen = lines[dist(gen)];
         return "https://livestreamx-cats.s3.amazonaws.com/" + chosen;
     }
+    std::optional<size_t> find_keyframe_offset(const std::string& url, size_t start_offset, size_t scan_window) {
+        Chunk probe_chunk{start_offset, scan_window};
+        if (!ChunkFetcher::fetch(url, probe_chunk)) return std::nullopt;
+
+        for (size_t i = 0; i + CHUNK_SIZE <= probe_chunk.data_.size(); i += TS_PACKET_SIZE) {
+            std::vector<uint8_t> view(probe_chunk.data_.begin() + i, probe_chunk.data_.begin() + i + CHUNK_SIZE);
+            if (ChunkFetcher::has_idr_frame(view)) {
+                return start_offset + i;
+            }
+        }
+        return std::nullopt;
+    }
 };
 
+#endif

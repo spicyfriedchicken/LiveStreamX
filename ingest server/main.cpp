@@ -1,4 +1,4 @@
-import S3DownloadManager;
+#include "DownloadManager.h"
 
 int main() {
     S3DownloadManager manager;
