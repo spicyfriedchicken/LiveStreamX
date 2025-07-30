@@ -96,6 +96,16 @@ func processVideo(videoID string, bucket string, workerID int) {
 
 	mp4Path := fmt.Sprintf("tmp/%s.mp4", videoID)
 	jsonPath := fmt.Sprintf("tmp/%s.info.json", videoID)
+	tsPath := fmt.Sprintf("tmp/%s.ts", videoID)
+
+	cmd := exec.Command("ffmpeg", "-y", "-i", mp4Path, "-c", "copy", "-f", "mpegts", tsPath)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		fmt.Printf("[ffmpeg] conversion to ts failed for %s: %v\n", videoID, err)
+		fmt.Println("[ffmpeg] stderr:\n", stderr.String())
+		return
+	}
 
 	for i := 0; i < 10; i++ {
 		if _, err := os.Stat(mp4Path); err == nil {
@@ -109,25 +119,30 @@ func processVideo(videoID string, bucket string, workerID int) {
 		fmt.Printf("[worker %d] mp4 not found: %s\n", workerID, mp4Path)
 		return
 	}
+	if _, err := os.Stat(mp4Path); os.IsNotExist(err) {
+		fmt.Printf("[worker %d] ts not found: %s\n", workerID, mp4Path)
+		return
+	}
 	if _, err := os.Stat(jsonPath); os.IsNotExist(err) {
 		fmt.Printf("[worker %d] json not found: %s (skipping upload)\n", workerID, jsonPath)
 		return
 	}
 
-	err = uploadToS3(mp4Path, "mp4/"+videoID+".mp4", bucket)
+	err = uploadToS3(tsPath, "ts/"+videoID+".ts", bucket)
 	if err != nil {
-		fmt.Printf("[worker %d] failed to upload mp4: %v\n", workerID, err)
+		fmt.Printf("[worker %d] failed to upload ts: %v\n", workerID, err)
 		return
 	}
 
-	err = uploadToS3(jsonPath, "json/"+videoID+".info.json", bucket)
-	if err != nil {
-		fmt.Printf("[worker %d] failed to upload json: %v\n", workerID, err)
-		return
-	}
+	//err = uploadToS3(jsonPath, "json/"+videoID+".info.json", bucket)
+	//if err != nil {
+	//	fmt.Printf("[worker %d] failed to upload json: %v\n", workerID, err)
+	//	return
+	//}
 
 	os.Remove(mp4Path)
 	os.Remove(jsonPath)
+	os.Remove(tsPath)
 
 	fmt.Printf("[worker %d] finished %s (cleaned up)\n", workerID, videoID)
 }
