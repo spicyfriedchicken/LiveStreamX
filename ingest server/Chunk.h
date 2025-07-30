@@ -63,84 +63,148 @@ public:
 };
 
 class ChunkFetcher {
-public:
-    static bool fetch(const std::string& url, Chunk& chunk) {
-        CURL* curl = curl_easy_init();
-        if (!curl) return false;
+private:
+    struct TSPacket {
+        uint8_t sync_byte;
+        uint16_t pid;
+        bool payload_unit_start;
+        bool adaptation_field_exists;
+        uint8_t adaptation_field_length;
+        size_t payload_offset;
+        size_t payload_size;
+    };
 
-        std::string range = std::to_string(chunk.offset_) + "-" + std::to_string(chunk.offset_ + chunk.size_ - 1);
-        curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-        curl_easy_setopt(curl, CURLOPT_RANGE, range.c_str());
-        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_callback);
-        curl_easy_setopt(curl, CURLOPT_WRITEDATA, &chunk);
-        curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
-        curl_easy_setopt(curl, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_2TLS);
-        curl_easy_setopt(curl, CURLOPT_TCP_KEEPALIVE, 1L);
-        CURLcode res;
-        for (int attempt = 0; attempt < 3; ++attempt) {
-            res = curl_easy_perform(curl);
-            if (res != CURLE_OK) {
-                std::cerr << "Attempt # " << attempt << " CURL error at offset " << chunk.offset_ << ": "
-                          << curl_easy_strerror(res) <<  std::endl;
-            }
-        }
-
-            curl_easy_cleanup(curl);
-            chunk.downloaded_ = (res == CURLE_OK);
-
-            if (chunk.downloaded_ && has_idr_frame(chunk.data_)) {
-                chunk.save_to_disk();
-                return true;
-            }
-
+    static bool parse_ts_packet(const std::vector<uint8_t>& data, size_t offset, TSPacket& packet) {
+        if (offset + 188 > data.size() || data[offset] != 0x47) {
             return false;
         }
+
+        packet.sync_byte = data[offset];
+        packet.payload_unit_start = (data[offset + 1] & 0x40) != 0;
+        packet.pid = ((data[offset + 1] & 0x1F) << 8) | data[offset + 2];
+        packet.adaptation_field_exists = (data[offset + 3] & 0x20) != 0;
+
+        packet.payload_offset = offset + 4;
+        if (packet.adaptation_field_exists) {
+            packet.adaptation_field_length = data[offset + 4];
+            packet.payload_offset += 1 + packet.adaptation_field_length;
+        }
+
+        if (packet.payload_offset >= offset + 188) {
+            packet.payload_size = 0;
+        } else {
+            packet.payload_size = (offset + 188) - packet.payload_offset;
+        }
+
+        return true;
+    }
+
+    static std::optional<uint16_t> find_video_pid(const std::vector<uint8_t>& data) {
+        // Look for PAT (PID 0) and then PMT to find video PID
+        for (size_t i = 0; i + 188 <= data.size(); i += 188) {
+            TSPacket packet;
+            if (!parse_ts_packet(data, i, packet) || packet.pid != 0) continue;
+
+            // Parse PAT to find PMT PID, then parse PMT to find video PID
+            // For simplicity, assume common video PIDs: 0x100, 0x101, etc.
+            // In production, you'd parse the actual PAT/PMT tables
+        }
+
+        // Common video PIDs to try
+        std::vector<uint16_t> common_video_pids = {0x100, 0x101, 0x11, 0x20};
+        for (uint16_t pid : common_video_pids) {
+            // Check if this PID contains video data
+            for (size_t i = 0; i + 188 <= data.size(); i += 188) {
+                TSPacket packet;
+                if (parse_ts_packet(data, i, packet) && packet.pid == pid && packet.payload_size > 0) {
+                    return pid;
+                }
+            }
+        }
+        return std::nullopt;
+    }
+
 public:
     static bool has_idr_frame(const std::vector<uint8_t>& data) {
-        constexpr size_t TS_PACKET_SIZE = 188;
-        bool seen_aud = false;
-        bool seen_sps = false;
-        bool seen_pps = false;
+        // Step 1: Find video PID
+        auto video_pid = find_video_pid(data);
+        if (!video_pid) return false;
 
-        for (size_t i = 0; i + TS_PACKET_SIZE <= data.size(); i += TS_PACKET_SIZE) {
-            if (data[i] != 0x47) continue; // Sync byte
-            bool pusi = data[i + 1] & 0x40;
-            if (!pusi) continue;
+        // Step 2: Reconstruct PES packets from TS packets
+        std::vector<uint8_t> pes_buffer;
+        bool in_pes_packet = false;
 
-            size_t payload_start = i + 4;
-            if (data[i + 3] & 0x20) {
-                const uint8_t af_len = data[i + 4];
-                payload_start += (1 + af_len);
+        for (size_t i = 0; i + 188 <= data.size(); i += 188) {
+            TSPacket packet;
+            if (!parse_ts_packet(data, i, packet) || packet.pid != *video_pid) {
+                continue;
             }
 
-            for (size_t j = payload_start; j + 4 < i + TS_PACKET_SIZE; ++j) {
-                if (data[j] == 0x00 && data[j + 1] == 0x00 && data[j + 2] == 0x01) {
-                    const uint8_t nal_header = data[j + 3];
-                    const uint8_t nal_type = nal_header & 0x1F;
-
-                    switch (nal_type) {
-                        case 9: seen_aud = true; break;
-                        case 7: seen_sps = true; break;
-                        case 8: seen_pps = true; break;
-                        case 5:
-                            if (seen_aud && seen_sps && seen_pps) return true;
-                            break;
-                        default: break;
+            if (packet.payload_unit_start) {
+                // New PES packet starting
+                if (in_pes_packet && !pes_buffer.empty()) {
+                    // Process previous PES packet
+                    if (contains_idr_frame(pes_buffer)) {
+                        return true;
                     }
+                }
+                pes_buffer.clear();
+                in_pes_packet = true;
+            }
+
+            if (in_pes_packet && packet.payload_size > 0) {
+                // Add payload to PES buffer
+                pes_buffer.insert(pes_buffer.end(),
+                                data.begin() + packet.payload_offset,
+                                data.begin() + packet.payload_offset + packet.payload_size);
+            }
+        }
+
+        // Check final PES packet
+        if (in_pes_packet && !pes_buffer.empty()) {
+            return contains_idr_frame(pes_buffer);
+        }
+
+        return false;
+    }
+
+private:
+    static bool contains_idr_frame(const std::vector<uint8_t>& pes_data) {
+        // Skip PES header (usually 6-9 bytes + optional fields)
+        size_t start = 0;
+        if (pes_data.size() < 6) return false;
+
+        // Basic PES header parsing
+        if (pes_data[0] == 0x00 && pes_data[1] == 0x00 && pes_data[2] == 0x01) {
+            uint8_t pes_header_length = pes_data[8];
+            start = 9 + pes_header_length;
+        }
+
+        // Look for NAL units in the elementary stream
+        bool found_sps = false, found_pps = false, found_aud = false;
+
+        for (size_t i = start; i + 4 < pes_data.size(); ++i) {
+            if (pes_data[i] == 0x00 && pes_data[i+1] == 0x00 &&
+                pes_data[i+2] == 0x01) {
+
+                uint8_t nal_type = pes_data[i+3] & 0x1F;
+
+                switch (nal_type) {
+                    case 7: found_sps = true; break;  // SPS
+                    case 8: found_pps = true; break;  // PPS
+                    case 9: found_aud = true; break;  // AUD
+                    case 5: // IDR frame
+                        // For robustness, ensure we have proper sequence
+                        if (found_sps && found_pps) {
+                            return true;
+                        }
+                        break;
                 }
             }
         }
 
         return false;
     }
-private:
-    static size_t write_callback(char* ptr, size_t size, size_t nmemb, void* myData) {
-        Chunk* chunk = static_cast<Chunk*>(myData);
-        size_t total = size * nmemb;
-        chunk->data_.insert(chunk->data_.end(), ptr, ptr + total);
-        return total;
-    }
 };
-
 
 #endif
